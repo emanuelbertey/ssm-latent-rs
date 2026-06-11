@@ -26,7 +26,7 @@ impl<B: Backend> JepaLanguageModel<B> {
 
         // Stack multiple SSM layers for better latent representation
         let mut ssm_layers = Vec::new();
-        for _ in 0..2 {
+        for _ in 0..5 {
             ssm_layers.push(SsmBlock::new(config, device));
         }
 
