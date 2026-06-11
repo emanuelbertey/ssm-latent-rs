@@ -32,8 +32,11 @@ async fn main() -> anyhow::Result<()> {
     let mut full_config: FullConfig =
         toml::from_str(&config_str).expect("Failed to parse config.toml");
 
-    let ssm_config: SsmConfig = full_config.model.into();
+    let ssm_config: SsmConfig = full_config.model.clone().into();
     full_config.training.model_config = Some(ssm_config.clone());
+
+    let pipeline = StoryDataPipeline::new()?;
+    let vocab_size = pipeline.tokenizer.get_vocab_size(true);
 
     println!("Fetching TinyStories dataset...");
     let full_text = pipeline.fetch_tiny_stories()?;
