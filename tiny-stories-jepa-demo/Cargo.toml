@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "tiny-stories-jepa-demo"
 
 [dependencies]
-burn = { version = "0.21", default-features = false, features = ["train", "wgpu"] }
+burn = { version = "0.21", default-features = false, features = ["train", "cuda", "flex"] }
 tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
 hf-hub = { version = "0.5", default-features = false, features = ["tokio", "ureq"] }
 anyhow = { version = "1.0", default-features = false, features = ["std"] }

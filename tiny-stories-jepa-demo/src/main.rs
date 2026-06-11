@@ -5,9 +5,10 @@ mod training;
 use crate::data::StoryDataPipeline;
 use crate::model::JepaLanguageModel;
 use crate::training::{train, ModelConfig, TrainingConfig};
-use burn::backend::Wgpu;
+use burn::backend::{Cuda, Flex};
 use burn::module::AutodiffModule;
 use burn::tensor::{Int, Tensor};
+use burn::tensor::backend::Backend;
 use serde::Deserialize;
 use ssm_latent_model::ssm::SsmConfig;
 use std::fs;
@@ -34,12 +35,6 @@ async fn main() -> anyhow::Result<()> {
     let ssm_config: SsmConfig = full_config.model.into();
     full_config.training.model_config = Some(ssm_config.clone());
 
-    type Backend = Wgpu;
-    let device = burn::backend::wgpu::WgpuDevice::default();
-
-    let pipeline = StoryDataPipeline::new()?;
-    let vocab_size = pipeline.tokenizer.get_vocab_size(true);
-
     println!("Fetching TinyStories dataset...");
     let full_text = pipeline.fetch_tiny_stories()?;
 
@@ -56,8 +51,33 @@ async fn main() -> anyhow::Result<()> {
     }
     println!("Prepared {} story samples for training.", dataset.len());
 
+    // Lógica para elegir dispositivo dinámicamente entre CUDA y FLEX
+    // En Burn, dado que el backend está tipado estáticamente, usamos una función genérica
+    // para instanciar el modelo con el backend seleccionado.
+    let cuda_available = std::env::var("USE_CPU").is_err(); // Puedes personalizar esta comprobación (ej. usando nvml o asumiendo true si compila con cuda)
+
+    if cuda_available {
+        println!("==> GPU detectada/seleccionada. Usando backend CUDA...");
+        let device = Default::default();
+        run_demo::<Cuda>(full_config, device, pipeline, vocab_size, dataset).await?;
+    } else {
+        println!("==> Usando CPU con backend FLEX (Burn-Flex)...");
+        let device = Default::default();
+        run_demo::<Flex>(full_config, device, pipeline, vocab_size, dataset).await?;
+    }
+
+    Ok(())
+}
+
+async fn run_demo<B: Backend>(
+    full_config: FullConfig,
+    device: B::Device,
+    pipeline: StoryDataPipeline,
+    vocab_size: usize,
+    dataset: Vec<(String, Vec<usize>)>,
+) -> anyhow::Result<()> {
     println!("\n[Phase 1] Training SSM dynamics on Embeddings...");
-    let model = train::<burn::backend::Autodiff<Backend>>(
+    let model = train::<burn::backend::Autodiff<B>>(
         "/tmp/jepa-ssm",
         full_config.training,
         device.clone(),
@@ -66,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Convert to inference model
-    let model_valid = JepaLanguageModel::<Backend> {
+    let model_valid = JepaLanguageModel::<B> {
         embedding: model.embedding.valid(),
         input_projection: model.input_projection.valid(),
         ssm_layers: model.ssm_layers.into_iter().map(|s| s.valid()).collect(),
@@ -92,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
         .collect();
 
     for _ in 0..40 {
-        let input_tensor = Tensor::<Backend, 1, Int>::from_ints(
+        let input_tensor = Tensor::<B, 1, Int>::from_ints(
             current_ids
                 .iter()
                 .map(|&x| x as i32)
